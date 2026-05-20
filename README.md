@@ -60,16 +60,29 @@ This MCP server currently supports **JustLend V1** protocol. All contract addres
 
 ## Supported Markets
 
-| jToken | Underlying | Description |
-|--------|-----------|-------------|
-| jTRX   | TRX       | Native TRON token |
-| jUSDT  | USDT      | Tether USD |
-| jUSDC  | USDC      | USD Coin |
-| jBTC   | BTC       | Bitcoin (wrapped) |
-| jETH   | ETH       | Ethereum (wrapped) |
-| jSUN   | SUN       | SUN token |
-| jWIN   | WIN       | WINkLink |
-| jTUSD  | TUSD      | TrueUSD |
+The protocol currently exposes **17 active + 6 paused legacy = 23 markets**. Call `get_supported_markets` for the live list with addresses; the active markets are:
+
+| jToken     | Underlying | Description |
+|------------|-----------|-------------|
+| jTRX       | TRX       | Native TRON token |
+| jUSDT      | USDT      | Tether USD |
+| jUSDD      | USDD      | Decentralized USD (USDD/TRX supply‑mining rewards) |
+| jUSD1      | USD1      | World Liberty Financial USD |
+| jTUSD      | TUSD      | TrueUSD |
+| jwstUSDT   | wstUSDT   | Wrapped staked USDT (yields underlying staking APY) |
+| jsTRX      | sTRX      | Staked TRX (yields underlying staking APY) |
+| jBTC       | BTC       | Bitcoin (wrapped) |
+| jWBTC      | WBTC      | Wrapped Bitcoin |
+| jETH       | ETH       | Ethereum — dApp UI displays as "ETH" (formerly "ETHOLD") |
+| jETHB      | ETHB      | Bridged Ethereum — dApp UI displays as "ETHB" (formerly "ETH") |
+| jSUN       | SUN       | SUN token |
+| jJST       | JST       | JUST governance token |
+| jWIN       | WIN       | WINkLink |
+| jBTT       | BTT       | BitTorrent token |
+| jNFT       | NFT       | APENFT |
+| jHTX       | HTX       | HTX token |
+
+Paused / legacy markets (closed to new supply/borrow, queryable for read & to unwind positions): `jUSDCOLD`, `jUSDD_OLD`, `jBUSDOLD`, `jSUNOLD`, `jUSDJ`, `jWBTT`.
 
 ## Prerequisites
 
