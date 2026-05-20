@@ -152,13 +152,42 @@ export async function writeContract(
       ownerAddress,
     );
 
-    const signed = await signTransactionWithWallet(tx.transaction, undefined, network);
+    const description = buildTransactionDescription(
+      {
+        address: params.address,
+        abi: params.abi || [],
+        functionName: params.functionName,
+        args: params.args,
+        callValue: params.value,
+      },
+      signature,
+      typedParams,
+      network,
+      false,
+    );
+    const signed = await signTransactionWithWallet(tx.transaction, description, network);
     const broadcast = (await tronWeb.trx.sendRawTransaction(signed)) as BroadcastResponse;
     const { txID } = resolveBroadcastResult(broadcast, tx.transaction.txID);
     return txID;
   } catch (error: any) {
     throw new Error(`Write contract failed: ${error.message}`);
   }
+}
+
+
+function buildTransactionDescription(params: SafeSendParams, signature: string, typedParams: Array<{ type: string; value: any }>, network: string, simulationDegraded: boolean): string {
+  const args = typedParams.map((p) => `${p.type}=${String(p.value)}`).join(", ");
+  const callValue = params.callValue === undefined || params.callValue === null || params.callValue === "" ? "0" : String(params.callValue);
+  const feeLimit = params.feeLimit || 1_000_000_000;
+  return [
+    `network=${network}`,
+    `contract=${params.address}`,
+    `function=${signature}`,
+    `args=[${args}]`,
+    `callValue=${callValue}`,
+    `feeLimit=${feeLimit}`,
+    `simulation=${simulationDegraded ? "degraded" : "ok"}`,
+  ].join("; ");
 }
 
 export interface SafeSendParams {
@@ -334,7 +363,8 @@ export async function safeSend(
       ownerAddress
     );
 
-    const signed = await signTransactionWithWallet(tx.transaction, undefined, network);
+    const description = buildTransactionDescription(params, signature, typedParams, network, simulationDegraded);
+    const signed = await signTransactionWithWallet(tx.transaction, description, network);
     const broadcast = (await tronWeb.trx.sendRawTransaction(signed)) as BroadcastResponse;
     const { txID } = resolveBroadcastResult(broadcast, tx.transaction.txID);
     return { txID, message: "Transaction broadcasted successfully" };

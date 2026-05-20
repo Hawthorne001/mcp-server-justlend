@@ -116,7 +116,7 @@ export function registerStakingTools(server: McpServer) {
         "sTRX earns staking rewards (vote APY + energy rental income). " +
         "Pre-checks: sufficient TRX balance for staking amount + gas.",
       inputSchema: {
-        amount: z.number().min(1).describe("Amount of TRX to stake"),
+        amount: z.string().describe("Amount of TRX to stake (human-readable decimal string, e.g. '1' or '10.5')"),
         network: z.string().optional().describe("Network. Default: mainnet"),
       },
       annotations: { title: "Stake TRX to sTRX", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
