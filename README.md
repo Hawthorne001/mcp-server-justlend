@@ -38,10 +38,12 @@ This MCP server currently supports **JustLend V1** protocol. All contract addres
 - **JST Voting / Governance**: View proposals, cast votes, deposit/withdraw JST for voting power, reclaim votes
 - **Energy Rental**: Rent energy from JustLend, calculate rental prices, query rental orders, return/cancel rentals
 - **sTRX Staking**: Stake TRX to receive sTRX, unstake sTRX, claim staking rewards, check withdrawal eligibility
+  - Precision-safe BigInt/string math for TRX Sun conversion and 18-decimal sTRX balances/exchange-rate display
 
 #### Browser Wallet Signing
 - **TronLink Integration**: Connect TronLink (and other TIP-6963 browser wallets) via the `tronlink-signer` SDK
 - **Sign-only mode**: Server builds transactions, browser only signs — private keys never leave the wallet
+- **Confirmable transaction summaries**: Contract writes pass a deterministic summary (network, contract, function, args, callValue, feeLimit, simulation status) to the signer
 - **Dual wallet mode**: Users choose between `browser` (recommended) or `agent` (encrypted local storage)
 
 #### General TRON Chain
@@ -51,22 +53,36 @@ This MCP server currently supports **JustLend V1** protocol. All contract addres
 - **Contracts**: Read/write any contract, fetch on-chain ABI, multicall (v2 & v3), deploy, estimate energy
 - **Token Metadata**: TRC20 info (name/symbol/decimals/supply), TRC721 metadata, TRC1155 URI
 - **Transfers**: Send TRX, transfer TRC20 tokens, approve spenders
+  - Transfer/approval paths validate recipient, token, and spender TRON addresses before signing
 - **Staking (Stake 2.0)**: Freeze/unfreeze TRX for BANDWIDTH or ENERGY, withdraw expired unfreeze
 - **Address Utilities**: Hex ↔ Base58 conversion, address validation, resolution
 - **Wallet**: Sign messages, secure key management via agent-wallet or browser wallet
 
 ## Supported Markets
 
-| jToken | Underlying | Description |
-|--------|-----------|-------------|
-| jTRX   | TRX       | Native TRON token |
-| jUSDT  | USDT      | Tether USD |
-| jUSDC  | USDC      | USD Coin |
-| jBTC   | BTC       | Bitcoin (wrapped) |
-| jETH   | ETH       | Ethereum (wrapped) |
-| jSUN   | SUN       | SUN token |
-| jWIN   | WIN       | WINkLink |
-| jTUSD  | TUSD      | TrueUSD |
+The protocol currently exposes **17 active + 6 paused legacy = 23 markets**. Call `get_supported_markets` for the live list with addresses; the active markets are:
+
+| jToken     | Underlying | Description |
+|------------|-----------|-------------|
+| jTRX       | TRX       | Native TRON token |
+| jUSDT      | USDT      | Tether USD |
+| jUSDD      | USDD      | Decentralized USD (USDD/TRX supply‑mining rewards) |
+| jUSD1      | USD1      | World Liberty Financial USD |
+| jTUSD      | TUSD      | TrueUSD |
+| jwstUSDT   | wstUSDT   | Wrapped staked USDT (yields underlying staking APY) |
+| jsTRX      | sTRX      | Staked TRX (yields underlying staking APY) |
+| jBTC       | BTC       | Bitcoin (wrapped) |
+| jWBTC      | WBTC      | Wrapped Bitcoin |
+| jETH       | ETH       | Ethereum — dApp UI displays as "ETH" (formerly "ETHOLD") |
+| jETHB      | ETHB      | Bridged Ethereum — dApp UI displays as "ETHB" (formerly "ETH") |
+| jSUN       | SUN       | SUN token |
+| jJST       | JST       | JUST governance token |
+| jWIN       | WIN       | WINkLink |
+| jBTT       | BTT       | BitTorrent token |
+| jNFT       | NFT       | APENFT |
+| jHTX       | HTX       | HTX token |
+
+Paused / legacy markets (closed to new supply/borrow, queryable for read & to unwind positions): `jUSDCOLD`, `jUSDD_OLD`, `jBUSDOLD`, `jSUNOLD`, `jUSDJ`, `jWBTT`.
 
 ## Prerequisites
 
@@ -382,7 +398,7 @@ npm run dev:http     # HTTP/SSE with auto-reload
 | `get_strx_account` | User staking account: staked amount, income, rewards | No |
 | `get_strx_balance` | sTRX token balance for an address | No |
 | `check_strx_withdrawal_eligibility` | Check unbonding status, pending/completed withdrawal rounds | No |
-| `stake_trx_to_strx` | Stake TRX to receive sTRX (with balance check) | **Yes** |
+| `stake_trx_to_strx` | Stake TRX to receive sTRX with precision-safe string amount parsing (with balance check) | **Yes** |
 | `unstake_strx` | Unstake sTRX to receive TRX back (with balance check) | **Yes** |
 | `claim_strx_rewards` | Claim all staking rewards (with rewards existence check) | **Yes** |
 
@@ -390,7 +406,7 @@ npm run dev:http     # HTTP/SSE with auto-reload
 | Tool | Description | Write? |
 |------|-------------|--------|
 | `transfer_trx` | Transfer TRX to another address (with balance check) | **Yes** |
-| `transfer_trc20` | Transfer TRC20 tokens by symbol or contract address | **Yes** |
+| `transfer_trc20` | Transfer TRC20 tokens by symbol or contract address; validates token and recipient addresses before signing | **Yes** |
 
 ### Prompts (AI-Guided Workflows)
 
@@ -517,6 +533,9 @@ TEST_STRX_STAKING=1 npx vitest run tests/core/services/strx-staking.test.ts
 - **Private keys** are managed by [@bankofai/agent-wallet](https://github.com/BofAI/agent-wallet) — never stored in environment variables or exposed via MCP tools
 - **Wallet encryption**: Keys are stored in `~/.agent-wallet/` with password-based encryption
 - **Write operations** are clearly marked with `destructiveHint: true` in MCP annotations
+- **Transaction summaries before signing**: contract write paths pass signer-facing summaries with network, contract, function, arguments, callValue, feeLimit, and simulation status
+- **Address validation before signing**: transfer and approval services reject invalid recipient/token/spender addresses before contract loading or wallet signing
+- **Precision-safe value handling**: sTRX staking uses string/BigInt parsing for TRX Sun conversion and 18-decimal sTRX display/estimates
 - **Health factor checks** in prompts prevent dangerous borrowing
 - Always **test on Nile testnet** before mainnet operations
 - Be cautious with **unlimited approvals** (`approve_underlying` with `max`)
