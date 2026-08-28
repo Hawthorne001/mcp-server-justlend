@@ -1,114 +1,48 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const signTransactionMock = vi.fn(async () => ({
-  signedTransaction: { signature: ["0xmock-signature"] },
-}));
-const signMessageMock = vi.fn(async () => ({
-  signature: "0xmock-message-signature",
-}));
-const signTypedDataMock = vi.fn(async () => ({
-  signature: "0xmock-typed-data-signature",
-}));
-
-vi.mock("../../../src/core/browser-signer.js", () => {
-  class TronWalletSigner {
-    async start() {
-      return 3386;
-    }
-
-    getConnectedAddress() {
-      return "TBrowserWallet1234567890123456789012";
-    }
-
-    async signTransaction(unsignedTx: unknown, description?: string, network?: string) {
-      return signTransactionMock(unsignedTx, description, network);
-    }
-
-    async signMessage(params: { message: string; network?: string }) {
-      return signMessageMock(params);
-    }
-
-    async signTypedData(typedData: Record<string, unknown>, network?: string) {
-      return signTypedDataMock(typedData, network);
-    }
-
-    async shutdown() {}
-  }
-
-  return { TronWalletSigner };
-});
-
+import { beforeEach, describe, expect, it } from "vitest";
 import {
+  createSessionState,
+  runWithSessionState,
+  setWalletMode,
+} from "../../../src/core/services/global.js";
+import {
+  getWalletAddress,
   signMessage,
   signTransactionWithWallet,
   signTypedData,
 } from "../../../src/core/services/wallet.js";
-import {
-  createSessionState,
-  runWithSessionState,
-  setGlobalNetwork,
-  setWalletMode,
-} from "../../../src/core/services/global.js";
+import { TronWalletSigner } from "../../../src/core/browser-signer.js";
 
-describe("browser signer network forwarding", () => {
+describe("unauthenticated browser bridge shutdown", () => {
   beforeEach(() => {
-    signTransactionMock.mockClear();
-    signMessageMock.mockClear();
-    signTypedDataMock.mockClear();
+    // Each test uses an isolated MCP session state.
   });
 
-  it("passes the active network to browser message signing", async () => {
-    const session = createSessionState("wallet-browser-sign-message");
-
+  it("refuses browser wallet address resolution", async () => {
+    const session = createSessionState("wallet-browser-address-disabled");
     await runWithSessionState(session, async () => {
       setWalletMode("browser");
-      setGlobalNetwork("nile");
-      await signMessage("hello nile");
-    });
-
-    expect(signMessageMock).toHaveBeenCalledWith({
-      message: "hello nile",
-      network: "nile",
+      await expect(getWalletAddress()).rejects.toThrow(/disabled.*request-level authentication/i);
     });
   });
 
-  it("passes the active network to browser typed-data signing", async () => {
-    const session = createSessionState("wallet-browser-sign-typed-data");
-
+  it("refuses browser message and typed-data signing", async () => {
+    const session = createSessionState("wallet-browser-messages-disabled");
     await runWithSessionState(session, async () => {
       setWalletMode("browser");
-      setGlobalNetwork("nile");
-      await signTypedData(
-        { name: "JustLend", version: "1", chainId: 3448148188 },
-        { Greeting: [{ name: "contents", type: "string" }] },
-        { contents: "hello nile" },
-      );
+      await expect(signMessage("hello")).rejects.toThrow(/disabled.*unauthenticated/i);
+      await expect(signTypedData({}, {}, {})).rejects.toThrow(/disabled.*unauthenticated/i);
     });
-
-    expect(signTypedDataMock).toHaveBeenCalledWith(
-      {
-        domain: { name: "JustLend", version: "1", chainId: 3448148188 },
-        types: { Greeting: [{ name: "contents", type: "string" }] },
-        message: { contents: "hello nile" },
-      },
-      "nile",
-    );
   });
 
-  it("passes the explicit network to browser transaction signing", async () => {
-    const session = createSessionState("wallet-browser-sign-transaction");
-    const unsignedTx = { txID: "mock-tx-id" };
-
+  it("refuses browser transaction signing and never starts a loopback server", async () => {
+    const session = createSessionState("wallet-browser-tx-disabled");
     await runWithSessionState(session, async () => {
       setWalletMode("browser");
-      setGlobalNetwork("mainnet");
-      await signTransactionWithWallet(unsignedTx, "browser test tx", "nile");
+      await expect(signTransactionWithWallet({ txID: "unsigned" }, "test", "nile"))
+        .rejects.toThrow(/disabled.*unauthenticated/i);
     });
-
-    expect(signTransactionMock).toHaveBeenCalledWith(
-      unsignedTx,
-      "browser test tx",
-      "nile",
-    );
+    const signer = new TronWalletSigner();
+    await expect(signer.start()).rejects.toThrow(/no request-level authentication/i);
+    expect(signer.getConnectedAddress()).toBeNull();
   });
 });

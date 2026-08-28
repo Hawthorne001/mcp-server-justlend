@@ -40,7 +40,7 @@ async function getTokenDecimals(tokenAddress: string, network: string): Promise<
     { address: tokenAddress, functionName: "decimals", args: [], abi: TRC20_ABI },
     network,
   );
-  return Number(r);
+  return utils.assertValidDecimals(Number(r), tokenAddress);
 }
 
 // ── Approve MoolahProxy to spend TRC20 ───────────────────────────────────────

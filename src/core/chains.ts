@@ -123,7 +123,7 @@ export const NETWORKS: Record<TronNetwork, NetworkConfig> = {
  * All addresses below are for JustLend V1 protocol.
  *
  * jToken list sourced from JustLend official docs & TronScan verified contracts.
- * 23 V1 jToken markets total: 17 active + 6 paused/legacy.
+ * 24 V1 jToken markets total: 18 active + 6 paused/legacy (verified 2026-08-19).
  * Markets tagged `*OLD` or known to be paused: jUSDJ, jSUNOLD, jWBTT, jUSDCOLD,
  * jUSDD_OLD, jBUSDOLD — closed to new supply/borrow, still queryable so existing
  * positions can be unwound.

@@ -91,7 +91,7 @@ export function classifyError(message: string): { errorCode?: string; hint?: str
     return {
       errorCode: "wallet_not_configured",
       retryable: false,
-      hint: "Configure a wallet first: import_wallet (agent mode) or connect_wallet (browser mode), then set_active_wallet.",
+      hint: "Configure agent-wallet first with import_wallet or set_wallet_mode({ mode: 'agent' }), then set_active_wallet if needed.",
     };
   if (/revert|execution reverted|reverted/.test(m))
     return {

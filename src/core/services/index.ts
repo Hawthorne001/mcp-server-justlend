@@ -8,6 +8,7 @@ export * from "./lending.js";
 export * from "./rewards.js";
 export * from "./voting.js";
 export * from "./energy-rental.js";
+export * from "./energy-purchase.js";
 export * from "./strx-staking.js";
 
 // JustLend V2 (Moolah) services

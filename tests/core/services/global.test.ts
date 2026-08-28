@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   createSessionState,
+  getActiveWalletId,
   getGlobalNetwork,
   getWalletMode,
   runWithSessionState,
   setGlobalNetwork,
+  setActiveWalletId,
   setWalletMode,
 } from "../../../src/core/services/global.js";
 
@@ -51,5 +53,23 @@ describe("global session state", () => {
       expect(getGlobalNetwork()).toBe("mainnet");
       expect(getWalletMode()).toBe("agent");
     });
+  });
+
+  it("isolates the selected wallet between session states", () => {
+    const sessionA = createSessionState("wallet-a");
+    const sessionB = createSessionState("wallet-b");
+
+    runWithSessionState(sessionA, () => {
+      setActiveWalletId("wallet-one");
+      expect(getActiveWalletId()).toBe("wallet-one");
+    });
+
+    runWithSessionState(sessionB, () => {
+      expect(getActiveWalletId()).toBeUndefined();
+      setActiveWalletId("wallet-two");
+    });
+
+    runWithSessionState(sessionA, () => expect(getActiveWalletId()).toBe("wallet-one"));
+    runWithSessionState(sessionB, () => expect(getActiveWalletId()).toBe("wallet-two"));
   });
 });

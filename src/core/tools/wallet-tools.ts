@@ -17,8 +17,8 @@ export function registerWalletTools(server: McpServer) {
     "get_wallet_address",
     {
       description:
-        "Get the active wallet address. Returns browser wallet address if in browser mode, " +
-        "agent-wallet address if agent mode is selected, or a first-use wallet selection guide if no wallet mode has been chosen yet.",
+        "Get the active agent-wallet address, or a first-use wallet setup guide if no wallet mode has been chosen yet. " +
+        "Legacy browser mode is disabled until its bridge supports request-level authentication.",
       inputSchema: {},
       annotations: { title: "Get Wallet Address", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -35,11 +35,6 @@ export function registerWalletTools(server: McpServer) {
             message: "No wallet mode selected yet. Choose how you want to sign transactions before your first write operation.",
             options: {
               recommended: {
-                mode: "browser",
-                action: "connect_browser_wallet",
-                reason: "Use TronLink in your browser. Private keys never leave the browser.",
-              },
-              alternative: {
                 mode: "agent",
                 action: "set_wallet_mode",
                 params: { mode: "agent" },
@@ -47,23 +42,19 @@ export function registerWalletTools(server: McpServer) {
                   ? "Use the existing encrypted agent-wallet."
                   : "Create or use an encrypted agent-wallet stored in ~/.agent-wallet/.",
               },
+              browser: {
+                available: false,
+                reason: "Disabled until the local bridge supports request-level authentication.",
+              },
             },
           }, null, 2) }] };
         }
         if (mode === "browser") {
-          const address = getBrowserSigner().getConnectedAddress();
-          if (address) {
-            return { content: [{ type: "text", text: JSON.stringify({
-              address,
-              walletMode: "browser",
-              message: "Using browser wallet (TronLink). Private keys stay in your browser.",
-            }, null, 2) }] };
-          }
           return { content: [{ type: "text", text: JSON.stringify({
             walletMode: "browser",
             connected: false,
-            message: "Browser wallet mode active but not connected. Use connect_browser_wallet first, or switch to agent mode with set_wallet_mode.",
-          }, null, 2) }] };
+            message: "Browser wallet mode is disabled. Switch to agent mode with set_wallet_mode.",
+          }, null, 2) }], isError: true };
         }
 
         const { address, walletId, created } = await services.autoInitWallet();
@@ -74,7 +65,7 @@ export function registerWalletTools(server: McpServer) {
             walletMode: "agent",
             newlyCreated: true,
             message: "New wallet auto-generated. Encrypted private key stored in ~/.agent-wallet/. Fund this address with TRX before performing write operations.",
-            tip: "For better security, consider using connect_browser_wallet to sign with TronLink instead.",
+            tip: "Use AGENT_WALLET_PASSWORD so the encryption key is not stored next to the wallet.",
           }, null, 2) }] };
         }
         const status = await services.checkWalletStatus();
@@ -84,7 +75,7 @@ export function registerWalletTools(server: McpServer) {
           walletMode: "agent",
           totalWallets: status.wallets.length,
           message: "This wallet will be used for all JustLend operations",
-          tip: "For better security, consider using connect_browser_wallet to sign with TronLink instead.",
+          tip: "Use AGENT_WALLET_PASSWORD so the encryption key is not stored next to the wallet.",
         }, null, 2) }] };
       } catch (error: any) {
         return toolError(error);
@@ -139,19 +130,15 @@ export function registerWalletTools(server: McpServer) {
   );
 
   // ============================================================================
-  // BROWSER WALLET (connect TronLink / TokenPocket — recommended, more secure)
+  // BROWSER WALLET (disabled until the loopback bridge is authenticated)
   // ============================================================================
 
   server.registerTool(
     "connect_browser_wallet",
     {
       description:
-        "Connect to a browser wallet (TronLink, TokenPocket) for signing transactions. " +
-        "RECOMMENDED: More secure than agent-wallet because private keys never leave your browser. " +
-        "This opens a browser window where the user must approve the connection. " +
-        "Tell the user to switch to their browser to approve. " +
-        "Blocks until the user acts or the request times out (5 min). " +
-        "After connecting, all write operations will use the browser wallet for signing.",
+        "Browser wallet signing is temporarily disabled because the legacy local bridge lacks request-level authentication. " +
+        "Use agent-wallet with AGENT_WALLET_PASSWORD until an authenticated bridge is available.",
       inputSchema: {
         address: tronAddress("Required TRON address (T...). If set, the user must connect this exact address.").optional(),
       },
@@ -159,18 +146,11 @@ export function registerWalletTools(server: McpServer) {
     },
     async ({ address }: { address?: string }) => {
       try {
-        setWalletMode("browser");
-        const signer = getBrowserSigner();
-        const { address: connectedAddress, approvalUrl } = await signer.connectWallet({
-          address,
-          network: services.getGlobalNetwork(),
-        });
-        return { content: [{ type: "text", text: JSON.stringify({
-          address: connectedAddress,
-          approvalUrl,
-          walletMode: "browser",
-          message: "Browser wallet connected. All write operations will now use browser signing (private keys stay in your browser).",
-        }, null, 2) }] };
+        void address;
+        throw new Error(
+          "Browser wallet signing is disabled: the legacy loopback bridge has no request-level authentication. " +
+          "Use set_wallet_mode with mode='agent'.",
+        );
       } catch (error: any) {
         // Revert to agent mode on failure
         setWalletMode("agent");
@@ -184,10 +164,9 @@ export function registerWalletTools(server: McpServer) {
     {
       description:
         "Switch wallet signing mode. " +
-        "'browser' (recommended, more secure): uses TronLink in your browser — private keys never leave the browser. " +
-        "'agent': uses encrypted key stored in ~/.agent-wallet/. " +
-        "Selecting agent mode for the first time will create an encrypted agent-wallet if needed. " +
-        "Browser mode requires connect_browser_wallet first.",
+        "'agent' uses an encrypted key stored in ~/.agent-wallet/. " +
+        "Browser mode is disabled until the local bridge supports request-level authentication. " +
+        "Selecting agent mode for the first time will create an encrypted agent-wallet if needed.",
       inputSchema: {
         mode: z.enum(["browser", "agent"]).describe("Wallet mode: 'browser' or 'agent'"),
       },
@@ -196,19 +175,10 @@ export function registerWalletTools(server: McpServer) {
     async ({ mode }: { mode: "browser" | "agent" }) => {
       try {
         if (mode === "browser") {
-          const address = getBrowserSigner().getConnectedAddress();
-          if (!address) {
-            return { content: [{ type: "text", text: JSON.stringify({
-              success: false,
-              message: "Cannot switch to browser mode: no browser wallet connected. Use connect_browser_wallet first.",
-            }, null, 2) }], isError: true };
-          }
-          setWalletMode("browser");
           return { content: [{ type: "text", text: JSON.stringify({
-            mode: "browser",
-            address,
-            message: "Switched to browser wallet mode. All write operations will use TronLink signing.",
-          }, null, 2) }] };
+            success: false,
+            message: "Browser wallet mode is disabled until its local bridge supports request-level authentication.",
+          }, null, 2) }], isError: true };
         }
         setWalletMode("agent");
         const { address, walletId, created } = await services.autoInitWallet();
@@ -232,7 +202,7 @@ export function registerWalletTools(server: McpServer) {
   server.registerTool(
     "get_wallet_mode",
     {
-      description: "Get the current wallet signing mode (browser, agent, or unset), connected address, and connection status.",
+      description: "Get the current wallet signing mode and agent-wallet status. Legacy browser mode is reported as disabled.",
       inputSchema: {},
       annotations: { title: "Get Wallet Mode", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -256,7 +226,7 @@ export function registerWalletTools(server: McpServer) {
         browserAddress,
         agentAddress,
         agentWalletAvailable,
-        recommendation: "Browser wallet mode is recommended for better security — private keys never leave your browser.",
+        recommendation: "Use agent mode with AGENT_WALLET_PASSWORD; browser mode is temporarily disabled.",
       }, null, 2) }] };
     },
   );

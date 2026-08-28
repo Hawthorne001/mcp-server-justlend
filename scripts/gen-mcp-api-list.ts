@@ -30,6 +30,7 @@ import { registerMoolahLiquidationTools } from "../src/core/tools/moolah-liquida
 import { registerMoolahDashboardTools } from "../src/core/tools/moolah-dashboard-tools.js";
 import { registerMoolahMiningTools } from "../src/core/tools/moolah-mining-tools.js";
 import { registerRecordsTools } from "../src/core/tools/records-tools.js";
+import { TOOL_OUTPUT_SCHEMA_VERSION, withStructuredToolOutputs } from "../src/core/tools/structured-output.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..");
@@ -39,6 +40,7 @@ interface CapturedTool {
   name: string;
   description: string;
   inputSchema: Record<string, z.ZodTypeAny>;
+  outputSchema?: Record<string, z.ZodTypeAny>;
   annotations?: {
     title?: string;
     readOnlyHint?: boolean;
@@ -59,6 +61,7 @@ const stubServer = {
       name,
       description: config?.description ?? "",
       inputSchema: config?.inputSchema ?? {},
+      outputSchema: config?.outputSchema,
       annotations: config?.annotations,
     });
   },
@@ -91,7 +94,12 @@ const categories: Array<[string, (s: any) => void]> = [
 
 for (const [label, register] of categories) {
   currentCategory = label;
-  register(stubServer);
+  register(withStructuredToolOutputs(stubServer));
+}
+
+const missingOutputSchema = tools.filter((tool) => !tool.outputSchema);
+if (missingOutputSchema.length > 0) {
+  throw new Error(`Tools missing outputSchema: ${missingOutputSchema.map((tool) => tool.name).join(", ")}`);
 }
 
 /** Unwrap Zod optional/default/nullable to the inner type, tracking metadata. */
@@ -189,6 +197,16 @@ lines.push(
 lines.push("");
 lines.push(`**Total tools**: ${tools.length}  |  **Protocol**: MCP  |  **Transport**: stdio / HTTP(SSE)`);
 lines.push("");
+lines.push(`## Common structured output contract (v${TOOL_OUTPUT_SCHEMA_VERSION})`);
+lines.push("");
+lines.push("Every tool declares an MCP `outputSchema`. Successful calls preserve the legacy text `content` and also return:");
+lines.push("");
+lines.push("```json");
+lines.push(JSON.stringify({ schemaVersion: TOOL_OUTPUT_SCHEMA_VERSION, tool: "get_supported_markets", result: {} }, null, 2));
+lines.push("```");
+lines.push("");
+lines.push("Consume `structuredContent` when available; older clients may continue parsing the first text content item. Error results keep `isError: true` and the existing structured JSON error body.");
+lines.push("");
 
 // Side-effect summary
 const writeTools = tools.filter((t) => t.annotations?.readOnlyHint === false);
@@ -201,8 +219,8 @@ lines.push("");
 lines.push(
   "> ⚠️ Tools marked 🔴 **sign and broadcast TRON transactions that move real assets** — the client " +
     "MUST require human confirmation (HITL) before executing. 🟡 tools only change local wallet/network " +
-    "config or start an interaction. Private keys are managed encrypted by `@bankofai/agent-wallet` or " +
-    "signed via the TronLink browser wallet, and are **never passed as tool arguments**.",
+    "config or start an interaction. Private keys are managed encrypted by `@bankofai/agent-wallet` and are " +
+    "**never passed as tool arguments**. The legacy unauthenticated browser-wallet bridge is disabled.",
 );
 lines.push("");
 lines.push("---");
@@ -216,7 +234,7 @@ for (const [label] of categories) {
   for (const tool of group) {
     lines.push(`### \`${tool.name}\``);
     lines.push("");
-    if (tool.annotations?.title) lines.push(`**${tool.annotations.title}**  `);
+    if (tool.annotations?.title) lines.push(`**${tool.annotations.title}**`);
     lines.push(`- **Side effect**: ${sideEffect(tool.annotations)}`);
     if (tool.annotations) {
       const flags = [
@@ -226,6 +244,10 @@ for (const [label] of categories) {
       if (flags.length) lines.push(`- **annotations**: ${flags.join(" · ")}`);
     }
     lines.push(`- **Description**: ${tool.description.replace(/\s*\n\s*/g, " ").trim()}`);
+    lines.push(
+      `- **Output schema**: common structured envelope v${TOOL_OUTPUT_SCHEMA_VERSION} (` +
+        "`schemaVersion`, `tool`, `result`)",
+    );
     const fields = Object.entries(tool.inputSchema);
     if (fields.length) {
       lines.push("");

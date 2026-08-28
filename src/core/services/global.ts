@@ -15,6 +15,8 @@ export interface SessionState {
   sessionId: string;
   network: string;
   walletMode: WalletMode;
+  /** Wallet selection is request/session scoped; never use provider-global active state for a request. */
+  activeWalletId?: string;
   browserSigner?: unknown;
 }
 
@@ -65,4 +67,12 @@ export function getWalletMode(): WalletMode {
 
 export function setWalletMode(mode: WalletMode): void {
   getSessionState().walletMode = mode;
+}
+
+export function getActiveWalletId(): string | undefined {
+  return getSessionState().activeWalletId;
+}
+
+export function setActiveWalletId(walletId: string): void {
+  getSessionState().activeWalletId = walletId;
 }

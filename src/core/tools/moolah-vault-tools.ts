@@ -141,7 +141,7 @@ export function registerMoolahVaultTools(server: McpServer) {
                 status: "approval_required",
                 message: `Insufficient allowance for ${vaultSymbol} vault. Call approve_moolah_vault first.`,
                 suggestedTool: "approve_moolah_vault",
-                args: { vaultSymbol, amount: "max" },
+                args: { vaultSymbol, amount },
               }, null, 2),
             }],
           };

@@ -350,6 +350,26 @@ vi.mock("../../src/core/services/index.js", () => ({
     refundedDeposit: 200,
   })),
 
+  // Energy Direct Purchase
+  getEnergyPurchaseConfig: vi.fn(async () => ({
+    config: { min_energy: 65000, max_energy: 5000000, max_batch_receivers: 50, supported_durations: ["1h"], payment_address: "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb" },
+    price: { unit_price_sun: 37 },
+    pool: { available_energy: 10000000 },
+  })),
+  quoteEnergyPurchase: vi.fn(async () => ({
+    total_sun: 2405000,
+    payment_address: "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb",
+  })),
+  getEnergyPurchaseOrder: vi.fn(async () => ({ id: 7, state: "delivered" })),
+  getEnergyPurchaseHistory: vi.fn(async () => ({ rows: [], total: 0 })),
+  getEnergyPaymentRisks: vi.fn(async () => []),
+  buyEnergyDirect: vi.fn(async () => ({ ok: true, orderId: 7, txHash: "payment_tx", state: "delivered" })),
+
+  // Moolah vault write-tool dependencies
+  readContract: vi.fn(async () => 0n),
+  utils: { parseUnits: vi.fn(() => 1n) },
+  moolahVaultDeposit: vi.fn(async () => ({ txID: "mock_vault_deposit_tx", amount: "1" })),
+
   // sTRX Staking
   getStrxDashboard: vi.fn(async () => ({
     trxPrice: 0.12,
@@ -508,6 +528,13 @@ describe("Tool Registration", () => {
       "get_return_rental_info",
       "rent_energy",
       "return_energy_rental",
+      // Energy Direct Purchase
+      "get_energy_purchase_config",
+      "quote_energy_purchase",
+      "get_energy_purchase_order",
+      "get_energy_purchase_history",
+      "get_energy_payment_risk",
+      "buy_energy_direct",
       // sTRX Staking
       "get_strx_dashboard",
       "get_strx_account",
@@ -528,6 +555,16 @@ describe("Tool Registration", () => {
 
     for (const name of expectedTools) {
       expect(registeredTools.has(name), `Tool "${name}" should be registered`).toBe(true);
+    }
+  });
+
+  it("declares the common outputSchema on all 104 tools", () => {
+    expect(registeredTools.size).toBe(104);
+    for (const [name, tool] of registeredTools) {
+      expect(tool.config.outputSchema, `${name} should declare outputSchema`).toBeDefined();
+      expect(tool.config.outputSchema.schemaVersion, `${name} schemaVersion`).toBeDefined();
+      expect(tool.config.outputSchema.tool, `${name} tool discriminator`).toBeDefined();
+      expect(tool.config.outputSchema.result, `${name} result field`).toBeDefined();
     }
   });
 
@@ -556,6 +593,11 @@ describe("Tool Registration", () => {
       "check_allowance",
       "get_trx_balance",
       "get_token_balance",
+      "get_energy_purchase_config",
+      "quote_energy_purchase",
+      "get_energy_purchase_order",
+      "get_energy_purchase_history",
+      "get_energy_payment_risk",
     ];
     for (const name of readOnlyTools) {
       const tool = registeredTools.get(name);
@@ -571,6 +613,7 @@ describe("Tool Registration", () => {
       "borrow",
       "repay",
       "exit_market",
+      "buy_energy_direct",
     ];
     for (const name of destructiveTools) {
       const tool = registeredTools.get(name);
@@ -589,8 +632,9 @@ describe("Wallet & Network Tools", () => {
     const output = getToolOutput(result);
     expect(output.walletMode).toBe("unset");
     expect(output.address).toBeNull();
-    expect(output.options.recommended.action).toBe("connect_browser_wallet");
-    expect(output.options.alternative.params.mode).toBe("agent");
+    expect(output.options.recommended.action).toBe("set_wallet_mode");
+    expect(output.options.recommended.params.mode).toBe("agent");
+    expect(output.options.browser.available).toBe(false);
     expect(services.autoInitWallet).not.toHaveBeenCalled();
   });
 
@@ -616,6 +660,11 @@ describe("Wallet & Network Tools", () => {
     expect(output.networks).toContain("mainnet");
     expect(output.networks).toContain("nile");
     expect(output.default).toBe("mainnet");
+    expect(result.structuredContent).toEqual({
+      schemaVersion: "1.0.0",
+      tool: "get_supported_networks",
+      result: output,
+    });
   });
 
   it("get_supported_markets should return market list", async () => {
@@ -1024,6 +1073,128 @@ describe("Energy Rental Tools", () => {
       "receiver",
       "mainnet",
     );
+  });
+});
+
+describe("Energy Direct Purchase Tools", () => {
+  const receiver = "TVjsyZ7fYF3qLF6BQgPmTEZy1xrNNyVAAA";
+
+  it("returns live purchase config without a wallet write", async () => {
+    const result = await callTool("get_energy_purchase_config");
+    const output = getToolOutput(result);
+    expect(output.config.supported_durations).toEqual(["1h"]);
+    expect(services.getEnergyPurchaseConfig).toHaveBeenCalled();
+  });
+
+  it("returns an authoritative read-only quote", async () => {
+    const result = await callTool("quote_energy_purchase", {
+      receiverAddresses: [receiver],
+      energyPerReceiver: 65000,
+      duration: "1h",
+    });
+    const output = getToolOutput(result);
+    expect(output.total_sun).toBe(2405000);
+    expect(services.quoteEnergyPurchase).toHaveBeenCalledWith([receiver], 65000, "1h");
+  });
+
+  it("returns public purchase history for an explicit payer", async () => {
+    vi.mocked(services.getEnergyPurchaseHistory).mockResolvedValueOnce({
+      total: 1,
+      page: 2,
+      size: 10,
+      rows: [{ order_id: 7, state: "delivered" }],
+    });
+    const result = await callTool("get_energy_purchase_history", {
+      address: receiver,
+      page: 2,
+      size: 10,
+    });
+    const output = getToolOutput(result);
+    expect(output.address).toBe(receiver);
+    expect(output.rows[0].state).toBe("delivered");
+    expect(services.getEnergyPurchaseHistory).toHaveBeenCalledWith(receiver, { page: 2, size: 10 });
+  });
+
+  it("does not expose the replayable signed transaction in payment-risk output", async () => {
+    vi.mocked(services.getEnergyPaymentRisks).mockResolvedValueOnce([{
+      payerAddress: receiver,
+      signedTxId: "ab".repeat(32),
+      createdAt: 1,
+      expiresAt: 2,
+      paymentConfirmed: false,
+      networkFingerprint: "api=production;provider=mainnet",
+      signedRequest: {
+        receivers: [receiver],
+        energy: 65000,
+        duration: "1h",
+        payer_address: receiver,
+        signed_transaction: {
+          txID: "ab".repeat(32),
+          raw_data_hex: "deadbeef",
+          signature: ["secret-signature"],
+          visible: false,
+        },
+      },
+    }] as any);
+
+    const result = await callTool("get_energy_payment_risk");
+    const output = getToolOutput(result);
+    expect(output.address).toBe("TTestWalletAddress123456789012345");
+    expect(output.risks[0]).toMatchObject({ signedTxId: "ab".repeat(32), replayAvailable: true });
+    expect(output.risks[0]).not.toHaveProperty("signedRequest");
+    expect(result.content[0].text).not.toContain("secret-signature");
+    expect(services.getEnergyPaymentRisks).toHaveBeenCalledWith("TTestWalletAddress123456789012345");
+  });
+
+  it("does not expose payer or network selectors on the read-only risk tool", () => {
+    const schema = registeredTools.get("get_energy_payment_risk")?.config.inputSchema;
+    expect(schema).toEqual({});
+  });
+
+  it("requires literal true confirmation at the schema boundary", () => {
+    const schema = registeredTools.get("buy_energy_direct")?.config.inputSchema.confirmPayment;
+    expect(schema.safeParse(true).success).toBe(true);
+    expect(schema.safeParse(false).success).toBe(false);
+    expect(schema.safeParse(undefined).success).toBe(false);
+  });
+
+  it("routes a confirmed purchase through the backend-broadcast service", async () => {
+    const result = await callTool("buy_energy_direct", {
+      receiverAddresses: [receiver],
+      energyPerReceiver: 65000,
+      duration: "1h",
+      expectedAmountSun: 2405000,
+      expectedPayAddress: "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb",
+      confirmPayment: true,
+    });
+    const output = getToolOutput(result);
+    expect(output.state).toBe("delivered");
+    expect(services.buyEnergyDirect).toHaveBeenCalledWith({
+      receivers: [receiver],
+      energyPerReceiver: 65000,
+      duration: "1h",
+      expectedAmountSun: 2405000,
+      expectedPayAddress: "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb",
+      network: "mainnet",
+    });
+  });
+});
+
+describe("Moolah Vault Tools", () => {
+  it("suggests an exact approval amount when a deposit allowance is insufficient", async () => {
+    const result = await callTool("moolah_vault_deposit", {
+      vaultSymbol: "USDT",
+      amount: "123.45",
+    });
+    const output = getToolOutput(result);
+
+    expect(output).toMatchObject({
+      status: "approval_required",
+      suggestedTool: "approve_moolah_vault",
+      args: { vaultSymbol: "USDT", amount: "123.45" },
+    });
+    expect(output.args.amount).not.toBe("max");
+    expect(services.moolahVaultDeposit).not.toHaveBeenCalled();
   });
 });
 

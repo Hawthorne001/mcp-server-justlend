@@ -27,19 +27,15 @@ export function registerJustLendPrompts(server: McpServer) {
 **Objective**: Help the user set up their wallet and get familiar with available features.
 
 ## Step 1 — Wallet Setup
-Call the \`get_wallet_address\` tool. If the wallet mode is "unset", present the two options clearly:
+Call the \`get_wallet_address\` tool. If the wallet mode is "unset", present the supported option clearly:
 
-### Option A: Browser Wallet (Recommended)
-- Use TronLink or other browser wallets to sign transactions
-- **Private keys never leave the browser** — most secure option
-- Action: Call \`connect_browser_wallet\` to open TronLink in the browser
-
-### Option B: Agent Wallet
+### Agent Wallet (Recommended)
 - Encrypted private key stored locally in ~/.agent-wallet/
+- Configure \`AGENT_WALLET_PASSWORD\` so the encryption password is not stored beside the wallet
 - Convenient for automated/headless usage
 - Action: Call \`set_wallet_mode\` with mode="agent"
 
-Ask the user which mode they prefer, then execute the corresponding action.
+Browser-wallet signing is temporarily disabled because the legacy local bridge lacks request-level authentication.
 
 ## Step 2 — Verify Connection
 After wallet is connected:

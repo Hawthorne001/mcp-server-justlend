@@ -12,6 +12,7 @@ import { registerMoolahLiquidationTools } from "./moolah-liquidation-tools.js";
 import { registerMoolahDashboardTools } from "./moolah-dashboard-tools.js";
 import { registerMoolahMiningTools } from "./moolah-mining-tools.js";
 import { registerRecordsTools } from "./records-tools.js";
+import { withStructuredToolOutputs } from "./structured-output.js";
 
 /**
  * Register all JustLend MCP tools.
@@ -20,19 +21,20 @@ import { registerRecordsTools } from "./records-tools.js";
  * variables or passed as tool arguments. Run `agent-wallet start` to set up the encrypted wallet.
  */
 export function registerJustLendTools(server: McpServer) {
-  registerWalletTools(server);
-  registerMarketTools(server);
-  registerLendingTools(server);
-  registerVotingTools(server);
-  registerEnergyTools(server);
-  registerStakingTools(server);
-  registerWtrxTools(server);
+  const structuredServer = withStructuredToolOutputs(server);
+  registerWalletTools(structuredServer);
+  registerMarketTools(structuredServer);
+  registerLendingTools(structuredServer);
+  registerVotingTools(structuredServer);
+  registerEnergyTools(structuredServer);
+  registerStakingTools(structuredServer);
+  registerWtrxTools(structuredServer);
   // JustLend V2 (Moolah)
-  registerMoolahVaultTools(server);
-  registerMoolahMarketTools(server);
-  registerMoolahLiquidationTools(server);
-  registerMoolahDashboardTools(server);
-  registerMoolahMiningTools(server);
+  registerMoolahVaultTools(structuredServer);
+  registerMoolahMarketTools(structuredServer);
+  registerMoolahLiquidationTools(structuredServer);
+  registerMoolahDashboardTools(structuredServer);
+  registerMoolahMiningTools(structuredServer);
   // Historical records (V1 + cross-cutting)
-  registerRecordsTools(server);
+  registerRecordsTools(structuredServer);
 }

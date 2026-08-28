@@ -1,9 +1,202 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as services from "../services/index.js";
-import { tronAddress, toolError } from "./shared.js";
+import { sanitizeError, tronAddress, toolError } from "./shared.js";
+
+function publicPaymentRisk(risk: any): Record<string, unknown> | undefined {
+  if (!risk || typeof risk !== "object") return undefined;
+  const recovered = risk.recoveredOrder && typeof risk.recoveredOrder === "object" ? risk.recoveredOrder : undefined;
+  const recoveredBatch = recovered?.batch && typeof recovered.batch === "object" ? recovered.batch : undefined;
+  return {
+    payerAddress: risk.payerAddress,
+    signedTxId: risk.signedTxId,
+    createdAt: risk.createdAt,
+    expiresAt: risk.expiresAt,
+    paymentConfirmed: risk.paymentConfirmed === true,
+    chainStatus: risk.chainStatus || "unknown",
+    chainExecution: risk.chainExecution || "unknown",
+    networkFingerprint: risk.networkFingerprint,
+    replayAvailable: Boolean(risk.signedRequest),
+    recoveredOrderId: recoveredBatch?.id ?? recovered?.id,
+    recoveredState: recoveredBatch?.state ?? recovered?.state,
+  };
+}
+
+function energyPurchaseToolError(error: any) {
+  if (!error?.code) return toolError(error);
+  const payload: Record<string, unknown> = {
+    error: sanitizeError(error),
+    errorCode: String(error.code).toLowerCase(),
+    retryable: error.retryable === true,
+  };
+  if (error.details !== undefined) payload.details = error.details;
+  if (error.paymentRisk) payload.paymentRisk = publicPaymentRisk(error.paymentRisk);
+  return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }], isError: true };
+}
 
 export function registerEnergyTools(server: McpServer) {
+
+  // ============================================================================
+  // ENERGY DIRECT PURCHASE (Read)
+  // ============================================================================
+
+  server.registerTool(
+    "get_energy_purchase_config",
+    {
+      description:
+        "Get live energy direct-purchase limits, supported durations, current unit prices, and pool capacity. " +
+        "Uses the official JustLend production API by default; JUSTLEND_ENERGY_API_URL overrides it.",
+      inputSchema: {},
+      annotations: { title: "Energy Purchase Config", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async () => {
+      try {
+        const data = await services.getEnergyPurchaseConfig();
+        return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+      } catch (error: any) {
+        return energyPurchaseToolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "quote_energy_purchase",
+    {
+      description:
+        "Get an authoritative, read-only quote for direct energy purchase. It does not create an order, sign, " +
+        "broadcast, or reserve funds. Limits and resource-pool exclusions are validated against live config.",
+      inputSchema: {
+        receiverAddresses: z.array(tronAddress("Address that will receive energy")).min(1).describe("One or more energy receiver addresses"),
+        energyPerReceiver: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).describe("Energy amount for each receiver"),
+        duration: z.string().min(1).describe("Duration exactly as advertised by get_energy_purchase_config"),
+      },
+      annotations: { title: "Quote Energy Purchase", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ receiverAddresses, energyPerReceiver, duration }) => {
+      try {
+        const quote = await services.quoteEnergyPurchase(receiverAddresses, energyPerReceiver, duration);
+        return { content: [{ type: "text", text: JSON.stringify(quote, null, 2) }] };
+      } catch (error: any) {
+        return energyPurchaseToolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_energy_purchase_order",
+    {
+      description: "Get the current lifecycle state and delivery details for an energy purchase order.",
+      inputSchema: {
+        orderId: z.union([z.string().min(1), z.number().int().nonnegative()]).describe("Energy purchase order id"),
+        orderToken: z.string().min(1).optional().describe("Optional X-Consumer-Order-Token returned when the order was accepted"),
+      },
+      annotations: { title: "Energy Purchase Order", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ orderId, orderToken }) => {
+      try {
+        const order = await services.getEnergyPurchaseOrder(orderId, orderToken);
+        return { content: [{ type: "text", text: JSON.stringify(order, null, 2) }] };
+      } catch (error: any) {
+        return energyPurchaseToolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_energy_purchase_history",
+    {
+      description:
+        "Get public direct-purchase history for a payer address, including in-progress and settled orders. " +
+        "Use it to recover an accepted order when an idempotent retry returns no access token.",
+      inputSchema: {
+        address: tronAddress("Payer address. Default: configured wallet").optional(),
+        page: z.number().int().positive().optional().describe("History page (1-based; used with size)"),
+        size: z.number().int().positive().optional().describe("Rows per page; omit for the backend default/all-history view"),
+      },
+      annotations: { title: "Energy Purchase History", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ address, page, size }) => {
+      try {
+        const payer = address || await services.getWalletAddress();
+        const history = await services.getEnergyPurchaseHistory(payer, { page, size });
+        return { content: [{ type: "text", text: JSON.stringify({ address: payer, ...history }, null, 2) }] };
+      } catch (error: any) {
+        return energyPurchaseToolError(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_energy_payment_risk",
+    {
+      description:
+        "Return unresolved direct-purchase payment risks for the configured wallet without replaying a signed payment. " +
+        "If any result remains, do not sign a new payment.",
+      inputSchema: {},
+      annotations: { title: "Energy Payment Risk", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async () => {
+      try {
+        const payer = await services.getWalletAddress();
+        const risks = await services.getEnergyPaymentRisks(payer);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              address: payer,
+              blocked: risks.length > 0,
+              risks: risks.map(publicPaymentRisk),
+              instruction: risks.length
+                ? "Do not create another signed payment until these transactions are reconciled."
+                : "No unresolved payment risk.",
+            }, null, 2),
+          }],
+        };
+      } catch (error: any) {
+        return energyPurchaseToolError(error);
+      }
+    },
+  );
+
+  // ============================================================================
+  // ENERGY DIRECT PURCHASE (Write)
+  // ============================================================================
+
+  server.registerTool(
+    "buy_energy_direct",
+    {
+      description:
+        "VALUE-MOVING OPERATION. Buy energy by signing a native TRX payment. The MCP server never broadcasts " +
+        "the payment locally; the configured energy service validates and may broadcast it. Call quote_energy_purchase " +
+        "first, show the payer, receivers, duration, and exact TRX amount to the user, and set confirmPayment=true only " +
+        "after the user explicitly confirms. Ambiguous submissions retry only the same signed transaction and block a new payment.",
+      inputSchema: {
+        receiverAddresses: z.array(tronAddress("Address that will receive energy")).min(1).describe("One or more energy receiver addresses"),
+        energyPerReceiver: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).describe("Energy amount for each receiver"),
+        duration: z.string().min(1).describe("Duration exactly as advertised by get_energy_purchase_config"),
+        expectedAmountSun: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).describe("Exact total_sun from the quote explicitly confirmed by the user"),
+        expectedPayAddress: tronAddress("Exact payment_address from the quote explicitly confirmed by the user"),
+        confirmPayment: z.literal(true).describe("Must be true only after the user explicitly confirms this value-moving payment"),
+        network: z.string().optional().describe("Signing network. Default: configured network"),
+      },
+      annotations: { title: "Buy Energy Direct", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ receiverAddresses, energyPerReceiver, duration, expectedAmountSun, expectedPayAddress, network = services.getGlobalNetwork() }) => {
+      try {
+        const result = await services.buyEnergyDirect({
+          receivers: receiverAddresses,
+          energyPerReceiver,
+          duration,
+          expectedAmountSun,
+          expectedPayAddress,
+          network,
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      } catch (error: any) {
+        return energyPurchaseToolError(error);
+      }
+    },
+  );
 
   // ============================================================================
   // ENERGY RENTAL (Read)

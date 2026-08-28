@@ -18,8 +18,8 @@ async function startServer() {
           "JustLend DAO MCP Server — TRON lending protocol + general chain utilities.\n\n" +
           "IMPORTANT: On the FIRST user interaction, call `get_wallet_address` to check wallet status. " +
           "If walletMode is \"unset\", you MUST present the wallet choice BEFORE doing anything else:\n" +
-          "  • Option A (Recommended): Browser wallet — call `connect_browser_wallet` to use TronLink. Private keys never leave the browser.\n" +
-          "  • Option B: Agent wallet — call `set_wallet_mode` with mode=\"agent\". Encrypted key stored in ~/.agent-wallet/.\n" +
+          "  • Recommended: Agent wallet — call `set_wallet_mode` with mode=\"agent\" and configure AGENT_WALLET_PASSWORD.\n" +
+          "  • Browser wallet is temporarily disabled until the local bridge has request-level authentication.\n" +
           "Read-only queries (market data, account lookups) work without a wallet, but always present the choice first so users understand their options.\n\n" +
           "After wallet is set up, show a brief feature overview and ask what the user wants to do.",
         capabilities: {
@@ -39,19 +39,18 @@ async function startServer() {
     console.error(`Supported networks: ${getSupportedNetworks().join(", ")}`);
 
     // Do not auto-create an agent wallet on startup.
-    // Let the user explicitly choose between browser wallet and agent-wallet.
+    // Do not expose the legacy unauthenticated browser bridge.
     try {
       const status = await checkWalletStatus();
       if (status.hasWallets && status.activeAddress) {
         console.error(`Agent wallet available: ${status.activeAddress} (id: ${status.activeWalletId})`);
       } else {
         console.error("Wallet mode: no selection yet");
-        console.error("  Recommended: connect_browser_wallet to use TronLink");
-        console.error("  Alternative: set_wallet_mode with mode='agent' to create/use agent-wallet");
+        console.error("  Recommended: set_wallet_mode with mode='agent' and AGENT_WALLET_PASSWORD");
       }
     } catch (error: any) {
       console.error(`Wallet status check failed — ${error.message}`);
-      console.error("  Users can still choose connect_browser_wallet or set_wallet_mode later.");
+      console.error("  Users can select agent mode with set_wallet_mode later.");
     }
 
     console.error("Server is ready to handle requests");
